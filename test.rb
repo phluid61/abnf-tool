@@ -1,29 +1,4 @@
 
-require_relative 'tokensequence'
-
-seq = ABNF::TokenSequence.new(DATA.read)
-
-def flub str
-  str = str.dup
-  str = str.gsub('\\', '\\\\')
-  str = str.gsub("\r", '\r')
-  str = str.gsub("\n", '\n')
-  str = str.gsub("\t", '\t')
-  str = str.gsub(/[\x00-\x1F]/n) {|x| "\\x#{'%02X' % x.ord}" }
-  str
-end
-
-=begin
-seq.each do |tok|
-  if tok.value.is_a? String
-    val = "[\e[36m#{flub tok.value}\e[0m]"
-  else
-    val = tok.value.inspect
-  end
-  src = "[\e[90m#{flub tok.src}\e[0m]"
-  printf "  %-21s  %s  %s\n", tok.type.inspect, val, src
-end
-=end
 
 def represent tok
   case tok.type
@@ -85,9 +60,28 @@ def canonize node
   end
 end
 
+require_relative 'tokensequence'
 require_relative 'ast'
+
+if ARGV.length > 0
+  io = ARGF
+else
+  io = DATA
+end
+
+#ast = ABNF::AST.from io.read
+seq = ABNF::TokenSequence.new(io.read)
 ast = ABNF::AST.new seq
-ast.each {|node| puts canonize(node) }
+
+ast.each{|node| puts canonize(node) }
+
+all_names = seq.select{|tok| tok.type == :name }.map{|tok| tok.value }.uniq
+defined_names = ast.map{|rule| rule[1].value }
+undefined_names = all_names - defined_names
+unless undefined_names.empty?
+  puts '', "The following rules appear to be undefined:"
+  undefined_names.each{|name| puts "  \e[31m#{name}\e[0m" }
+end
 
 __END__
 rulelist       =  1*( rule / (*c-wsp c-nl) )

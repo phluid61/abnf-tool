@@ -25,7 +25,7 @@ seq.each do |tok|
 end
 =end
 
-def bar tok
+def represent tok
   case tok.type
   when :name
     "\e[36m#{tok.value}\e[0m"
@@ -46,19 +46,19 @@ def bar tok
   end
 end
 
-def foo node
+def canonize node
   return "\e[33m" + node.inspect + "\e[0m" unless node.respond_to? :first
   case node.first
   when :rule
     _, rulename, definedas, definition = node
-    "#{bar rulename} #{bar definedas} #{foo definition}"
+    "#{represent rulename} #{represent definedas} #{canonize definition}"
   when :alternation
     _, cats = node
     a = z = ''
-    a + cats.map{|c| foo c }.join(' / ') + z
+    a + cats.map{|c| canonize c }.join(' / ') + z
   when :concatenation
     _, reps = node
-    reps.map{|c| foo c }.join(' ')
+    reps.map{|c| canonize c }.join(' ')
   when :repetition
     _, inner, min, max = node
     a = z = ''
@@ -67,19 +67,19 @@ def foo node
       z = ' )'
     end
     if min == 0 && max == 1
-      '[ ' + foo(inner) + ' ]'
+      '[ ' + canonize(inner) + ' ]'
     elsif min == max
       if min == 1
-        a + foo(inner) + z
+        a + canonize(inner) + z
       else
-        min.to_s + a + foo(inner) + z
+        min.to_s + a + canonize(inner) + z
       end
     else
-      (min == 0 ? '' : min.to_s) + '*' + (max == :inf ? '' : max.to_s) + a + foo(inner) + z
+      (min == 0 ? '' : min.to_s) + '*' + (max == :inf ? '' : max.to_s) + a + canonize(inner) + z
     end
   when :primitive
     _, tok = node
-    bar tok
+    represent tok
   else
     "??\e[31m" + node.inspect + "\e[0m"
   end
@@ -87,10 +87,7 @@ end
 
 require_relative 'ast'
 ast = ABNF::AST.new seq
-ast.each {|node| puts foo(node) }
-
-#require 'pp'
-#ast.each {|node| pp node }
+ast.each {|node| puts canonize(node) }
 
 __END__
 rulelist       =  1*( rule / (*c-wsp c-nl) )

@@ -13,6 +13,8 @@ module ABNF
       self.new TokenSequence.new(src)
     end
 
+    include Enumerable
+
     ##
     # Generate an AST from a TokenSequence.
     #
@@ -23,8 +25,9 @@ module ABNF
       ### sanitise sequence
       # strip whitespace
       seq = seq.reject{|tok| tok.type == :whitespace }
-      # replace all comments with plain newlines
-      seq = seq.map{|tok| (tok.type == :comment) ? Token.new(:endline,'') : tok }
+#      # replace all comments with plain newlines
+#      seq = seq.map{|tok| (tok.type == :comment) ? Token.new(:endline,'') : tok }
+      seq = seq.reject{|tok| tok.type == :comment }
       # remove continuations
       seq = seq.reject{|tok| tok.type == :continuation }
 
@@ -49,7 +52,7 @@ module ABNF
       # rule =  rulename defined-as elements c-nl
 
       rulename = seq.shift
-      raise 'BUG' if rulename.nil? || rulename.type != :name
+      raise "BUG: bad rulename #{rulename.inspect}" if rulename.nil? || rulename.type != :name
 
       raise "truncated rule for #{rulename.value}" if seq.empty?
 

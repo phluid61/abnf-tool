@@ -1,9 +1,96 @@
 
-require_relative 'abnf'
+require_relative 'tokensequence'
 
-require 'pp'
+seq = ABNF::TokenSequence.new(DATA.read)
 
-puts ABNF.new(DATA.read).canonical
+def flub str
+  str = str.dup
+  str = str.gsub('\\', '\\\\')
+  str = str.gsub("\r", '\r')
+  str = str.gsub("\n", '\n')
+  str = str.gsub("\t", '\t')
+  str = str.gsub(/[\x00-\x1F]/n) {|x| "\\x#{'%02X' % x.ord}" }
+  str
+end
+
+=begin
+seq.each do |tok|
+  if tok.value.is_a? String
+    val = "[\e[36m#{flub tok.value}\e[0m]"
+  else
+    val = tok.value.inspect
+  end
+  src = "[\e[90m#{flub tok.src}\e[0m]"
+  printf "  %-21s  %s  %s\n", tok.type.inspect, val, src
+end
+=end
+
+def bar tok
+  case tok.type
+  when :name
+    "\e[36m#{tok.value}\e[0m"
+  when :EQ, :EQ_ALT
+    tok.value
+  when :prose
+    "<#{tok.value}>"
+  when :sstring
+    "%s\e[32m\"#{tok.value}\"\e[0m"
+  when :istring
+    "\e[32m\"#{tok.value}\"\e[0m"
+  when :terminal
+    '%x' + tok.value.map{|x| "\e[33m%02X\e[0m" % x }.join('.')
+  when :range
+    '%x' + tok.value.map{|x| "\e[33m%02X\e[0m" % x }.join('-')
+  else
+    "\e[90m<#{tok.type}>\e[0m#{tok.value}"
+  end
+end
+
+def foo node
+  return "\e[33m" + node.inspect + "\e[0m" unless node.respond_to? :first
+  case node.first
+  when :rule
+    _, rulename, definedas, definition = node
+    "#{bar rulename} #{bar definedas} #{foo definition}"
+  when :alternation
+    _, cats = node
+    a = z = ''
+    a + cats.map{|c| foo c }.join(' / ') + z
+  when :concatenation
+    _, reps = node
+    reps.map{|c| foo c }.join(' ')
+  when :repetition
+    _, inner, min, max = node
+    a = z = ''
+    if inner.first != :primitive
+      a = '( '
+      z = ' )'
+    end
+    if min == 0 && max == 1
+      '[ ' + foo(inner) + ' ]'
+    elsif min == max
+      if min == 1
+        a + foo(inner) + z
+      else
+        min.to_s + a + foo(inner) + z
+      end
+    else
+      (min == 0 ? '' : min.to_s) + '*' + (max == :inf ? '' : max.to_s) + a + foo(inner) + z
+    end
+  when :primitive
+    _, tok = node
+    bar tok
+  else
+    "??\e[31m" + node.inspect + "\e[0m"
+  end
+end
+
+require_relative 'ast'
+ast = ABNF::AST.new seq
+ast.each {|node| puts foo(node) }
+
+#require 'pp'
+#ast.each {|node| pp node }
 
 __END__
 rulelist       =  1*( rule / (*c-wsp c-nl) )

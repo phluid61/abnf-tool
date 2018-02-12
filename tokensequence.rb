@@ -37,6 +37,8 @@ module ABNF
 
     LWSP   = /(?x: (?: #{WSP} | #{CRLF}#{WSP} )* )/
 
+    include Enumerable
+
     ##
     # Create a new TokenSequence.
     #
@@ -98,7 +100,7 @@ module ABNF
         elsif tmp.sub! %r(\A [\x20\x09]+ )x, ''
           @tokens << Token.new(:whitespace, $&.freeze)
 
-        elsif tmp.sub! %r(\A ; ((?: #{WSP} | #{VCHAR} )*) (?: \r?\n | $ ) )x, ''
+        elsif tmp.sub! %r(\A ; ((?: #{WSP} | #{VCHAR} )*) (?= \r?\n | $ ) )x, ''
           @tokens << Token.new(:comment, $&.freeze, $1.freeze)
 
         elsif tmp.sub! %r(\A %b #{BIT}+-#{BIT}+ )xi, ''
@@ -130,6 +132,9 @@ module ABNF
           @tokens << Token.new(:prose, $&.freeze, $1.freeze)
 
         elsif tmp.sub! %r(\A #{DIGIT}* \* #{DIGIT}* )x, ''
+          @tokens << Token.new(:repetition, $&.freeze, _parse_repetition($&))
+
+        elsif tmp.sub! %r(\A #{DIGIT}+ )x, ''
           @tokens << Token.new(:repetition, $&.freeze, _parse_repetition($&))
 
         elsif tmp.sub! %r(\A / )x, ''
@@ -184,6 +189,7 @@ module ABNF
 
     def _parse_repetition tok
       min, max = tok.split('*', -1)
+      max ||= ''
       min = min.empty? ? 0    : min.to_i
       max = max.empty? ? :inf : max.to_i
       [min, max].freeze

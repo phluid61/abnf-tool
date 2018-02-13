@@ -211,7 +211,7 @@ module ABNF
 
     def _parse_repetition tok
       min, max = tok.split('*', -1)
-      max ||= ''
+      max ||= min
       min = min.empty? ? 0    : min.to_i
       max = max.empty? ? :inf : max.to_i
       [min, max].freeze

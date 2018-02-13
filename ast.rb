@@ -134,6 +134,8 @@ module ABNF
     # Generate an AST from a TokenSequence.
     #
     def initialize seq
+      @rhs_names = []
+
       rules = {}
       seq = seq.to_a
 
@@ -165,11 +167,38 @@ module ABNF
         _strip seq
       end
 
+      @lhs_names = rules.keys
+      @rhs_names.uniq!
       @rules = rules.each_pair.map{|name, definition| Rule.new name, definition }
     end
 
     def each &block
       @rules.each(&block)
+    end
+
+    ##
+    # The set of rule names defined by this ABNF.
+    #
+    def defined_names
+      @lhs_names
+    end
+
+    ##
+    # The set of rule names consumed by rules in this
+    # ABNF that are undefined.
+    #
+    def undefined_names
+      @undef ||= @rhs_names - @lhs_names
+      @undef
+    end
+
+    ##
+    # The set of rule names defined by this ABNF that
+    # aren't consumed by any rules in it.
+    #
+    def toplevel_names
+      @toplevel ||= @lhs_names - @rhs_names
+      @toplevel
     end
 
     # strip all leading :endline tokens from the sequence
@@ -226,16 +255,19 @@ module ABNF
       when :repetition
         rep_tok = tok
         min, max = tok.value
-        case seq.first.type
+        case (tok2 = seq.first).type
         #when :LBRACKET # the ABNF allows this (??)
         when :LPAREN
           seq.shift
           inner = _alternation(seq, :RPAREN)
           raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
-        when :range, :terminal, :istring, :sstring, :prose, :name
+        when :range, :terminal, :istring, :sstring, :prose
+          inner = Primitive.new seq.shift
+        when :name
+          @rhs_names << tok2.value
           inner = Primitive.new seq.shift
         else
-          raise "unexpected #{seq.first.type.inspect} after #{tok.type.inspect}"
+          raise "unexpected #{tok2.type.inspect} after #{tok.type.inspect}"
         end
       when :LBRACKET
         rep_tok = tok
@@ -245,7 +277,10 @@ module ABNF
       when :LPAREN
         inner = _alternation(seq, :RPAREN)
         raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
-      when :range, :terminal, :istring, :sstring, :prose, :name
+      when :range, :terminal, :istring, :sstring, :prose
+        inner = Primitive.new tok
+      when :name
+        @rhs_names << tok.value
         inner = Primitive.new tok
       else
         raise "??#{tok.inspect}"

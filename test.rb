@@ -13,13 +13,20 @@ seq = ABNF::TokenSequence.new(io.read)
 ast = ABNF::AST.new seq
 
 ast.each{|node| puts node }
+puts ''
 
-all_names = seq.select{|tok| tok.type == :name }.map{|tok| tok.value }.uniq
-defined_names = ast.map{|rule| rule.rulename }
-undefined_names = all_names - defined_names
-unless undefined_names.empty?
-  puts '', "The following rules appear to be undefined:"
-  undefined_names.each{|name| puts "  \e[31m#{name}\e[0m" }
+missing = ast.undefined_names
+unless missing.empty?
+  puts "The following rules appear to be undefined:"
+  missing.each{|name| puts "  \e[31m#{name}\e[0m" }
+  puts ''
+end
+
+toplevel = ast.toplevel_names
+unless toplevel.empty?
+  puts "The following rules are defined but unused:"
+  toplevel.each{|name| puts "  \e[32m#{name}\e[0m" }
+  puts ''
 end
 
 __END__

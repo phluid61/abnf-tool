@@ -21,12 +21,17 @@ module ABNF
       end
 
       def + other
-        #warn "mismatched rule name (#{@rulename.inspect}, #{other.rulename.inspect})" if @rulename != other.rulename
+        warn "mismatched rule name (#{@rulename.inspect}, #{other.rulename.inspect})" if @rulename != other.rulename
         Rule.new(@rulename, @elements + other.elements)
       end
 
       def to_s
         "#{@rulename} = #{@elements}"
+      end
+
+      def match? str
+        str = str.to_s.dup
+        @elements.match? str
       end
     end
 
@@ -53,6 +58,25 @@ module ABNF
       def to_s
         concatenations.map{|c| c.to_s }.join(' / ')
       end
+
+      def match? str
+        str = str.to_s.dup
+        best = nil
+        @concatenations.each do |cat|
+          begin
+            x = cat.match? str
+#p [str, x]
+            # longest match wins:
+            best = x if x && (best.nil? || best.length > x.length)
+            # first match wins:
+            #return x if x
+          rescue => e
+            warn e
+          end
+        end
+        best
+        #nil
+      end
     end
 
     class Concatenation
@@ -77,6 +101,15 @@ module ABNF
 
       def to_s
         repetitions.map{|c| c.to_s }.join(' ')
+      end
+
+      def match? str
+        str = str.to_s.dup
+        @repetitions.each do |rep|
+          str = rep.match? str
+          return nil unless str
+        end
+        str
       end
     end
 
@@ -107,17 +140,61 @@ module ABNF
         end
         a + b + inner.to_s + z
       end
+
+      def match? str
+        str = str.to_s.dup
+        n = 0
+        until str.empty?
+          break if @max != :inf && n >= @max
+          x = inner.match? str
+          break unless x
+          str = x
+          n += 1
+        end
+        return nil if n < @min
+        str
+      end
     end
 
     class Primitive
       # @param Token token
-      def initialize token
+      def initialize ast, token
+        @ast = ast
         @token = token
       end
       attr_reader :token
 
       def to_s
         @token.to_s
+      end
+
+      def match? str
+        str = str.to_s.dup
+        case @token.type
+        when :name
+          rule = @ast[@token.value]
+          raise "undefined rule #{@token.value}" unless rule
+          rule.match? str
+        when :prose
+          # FIXME: ???
+          raise "unable to match against prose <#{@token.value}>"
+        when :sstring
+          return nil unless str.start_with? @token.value
+          str[@token.value.length..-1]
+        when :istring
+          return nil unless str.downcase.start_with? @token.value.downcase
+          str[@token.value.length..-1]
+        when :terminal
+          x = @token.value.map{|b| b.chr }.join
+          return nil unless str.start_with? x
+          str[x.length..-1]
+        when :range
+          b = str[0..0].ord
+          return nil if b < @token.value[0] || b > @token.value[1]
+          str[1..-1]
+        else
+          raise "unrecognised pritmitive #{@token.inspect}"
+        end
       end
     end
 
@@ -153,14 +230,14 @@ module ABNF
         name, op, definition = _consume_rule(seq)
         if rules[name.value]
           if op.type == :EQ
-            #warn "overriding rule #{name.value}"
+            warn "overriding rule #{name.value}"
             rules[name.value] = definition
           else
             rules[name.value] += definition
           end
         else
           if op.type == :EQ_ALT
-            #warn "alternation for undefined rule #{name.value}"
+            warn "alternation for undefined rule #{name.value}"
           end
           rules[name.value] = definition
         end
@@ -169,7 +246,8 @@ module ABNF
 
       @lhs_names = rules.keys
       @rhs_names.uniq!
-      @rules = rules.each_pair.map{|name, definition| Rule.new name, definition }
+      @rule_map = {}
+      @rules = rules.each_pair.map{|name, definition| @rule_map[name.downcase] = Rule.new(name, definition) }
     end
 
     def each &block
@@ -199,6 +277,25 @@ module ABNF
     def toplevel_names
       @toplevel ||= @lhs_names - @rhs_names
       @toplevel
+    end
+
+    ##
+    # Get the specified rule.
+    #
+    def rule name
+      @rule_map[name.downcase]
+    end
+    alias [] rule
+
+    ##
+    # Match the string against the specified rule.
+    #
+    def match? str, name
+      rule = rule(name)
+      raise "no such rule: #{name.inspect}" unless rule
+      rest = rule.match? str
+      return false unless rest && rest.empty?
+      true
     end
 
     # strip all leading :endline tokens from the sequence
@@ -262,10 +359,10 @@ module ABNF
           inner = _alternation(seq, :RPAREN)
           raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
         when :range, :terminal, :istring, :sstring, :prose
-          inner = Primitive.new seq.shift
+          inner = Primitive.new self, seq.shift
         when :name
           @rhs_names << tok2.value
-          inner = Primitive.new seq.shift
+          inner = Primitive.new self, seq.shift
         else
           raise "unexpected #{tok2.type.inspect} after #{tok.type.inspect}"
         end
@@ -278,10 +375,10 @@ module ABNF
         inner = _alternation(seq, :RPAREN)
         raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
       when :range, :terminal, :istring, :sstring, :prose
-        inner = Primitive.new tok
+        inner = Primitive.new self, tok
       when :name
         @rhs_names << tok.value
-        inner = Primitive.new tok
+        inner = Primitive.new self, tok
       else
         raise "??#{tok.inspect}"
       end

@@ -8,11 +8,13 @@ else
   io = DATA
 end
 
-#ast = ABNF::AST.from io.read
-seq = ABNF::TokenSequence.new(io.read)
+src = io.read
+
+#ast = ABNF::AST.from src
+seq = ABNF::TokenSequence.new(src)
 ast = ABNF::AST.new seq
 
-ast.each{|node| puts node }
+ast.each.sort_by{|node| node.rulename.downcase }.each{|node| puts node }
 puts ''
 
 missing = ast.undefined_names
@@ -27,6 +29,32 @@ unless toplevel.empty?
   puts "The following rules are defined but unused:"
   toplevel.each{|name| puts "  \e[32m#{name}\e[0m" }
   puts ''
+end
+
+[
+  ['e', 'HEXDIG'],
+  ['file:///foo/bar', 'file-URI'],
+  ["rulelist = 1*( rule / (*c-wsp c-nl) )\r\nrule = rulename defined-as elements c-nl\r\n", 'rulelist'],
+].each do |string, rulename|
+  puts "Does \e[1m#{string.inspect}\e[0m"
+  puts "..match rule <\e[1m#{rulename}\e[0m> ?"
+  begin
+    if ast.match? string, rulename
+      puts "\e[32mYES\e[0m"
+    else
+      puts "\e[31mNO\e[0m"
+    end
+  rescue => e
+    puts "\e[31m#{e}\e[0m"
+  end
+  puts ''
+end
+
+src.gsub! /(?<!\r)\n/, "\r\n"
+if ast.match? src, 'rulelist'
+  puts 'RECURSION!  :D'
+else
+  puts 'D: D: D:'
 end
 
 __END__

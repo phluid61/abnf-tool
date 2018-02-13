@@ -10,6 +10,28 @@ module ABNF
     def inspect
       "\#<#{self.class.name}:#{@type} value=#{@value.inspect} src=#{@src.inspect}>"
     end
+
+    # FIXME: ANSI/VT escape sequences are not very portable
+    def to_s
+      case @type
+      when :name
+        "\e[36m#{@value}\e[0m"
+      when :EQ, :EQ_ALT
+        @value
+      when :prose
+        "\e[90m<#{@value}>\e[0m"
+      when :sstring
+        "%s\e[32m\"#{@value}\"\e[0m"
+      when :istring
+        "\e[32m\"#{@value}\"\e[0m"
+      when :terminal
+        '%x' + @value.map{|x| "\e[33m%02X\e[0m" % x }.join('.')
+      when :range
+        '%x' + @value.map{|x| "\e[33m%02X\e[0m" % x }.join('-')
+      else
+        "\e[90m<#{@type}>\e[0m#{@value}"
+      end
+    end
   end
 
   ##

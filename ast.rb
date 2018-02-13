@@ -6,6 +6,121 @@ module ABNF
   # An abstract syntax tree, built from a TokenSequence.
   #
   class AST
+    class Rule
+      # @param Token<name> rulename
+      # @param Alternation elements
+      def initialize rulename, elements
+        @rulename = rulename
+        @elements = elements
+      end
+
+      attr_reader :rulename, :elements
+
+      def to_a
+        @elements.to_a
+      end
+
+      def + other
+        #warn "mismatched rule name (#{@rulename.inspect}, #{other.rulename.inspect})" if @rulename != other.rulename
+        Rule.new(@rulename, @elements + other.elements)
+      end
+
+      def to_s
+        "#{@rulename} = #{@elements}"
+      end
+    end
+
+    class Alternation
+      # @param Concatenation[] concatenations
+      def initialize concatenations
+        @concatenations = concatenations
+      end
+
+      attr_reader :concatenations
+      alias to_a concatenations
+
+      def each &block
+        @concatenations.each(&block)
+      end
+
+      include Enumerable
+
+      def + other
+        other = other.to_a if other.respond_to? :to_a
+        Alternation.new(@concatenations + other)
+      end
+
+      def to_s
+        concatenations.map{|c| c.to_s }.join(' / ')
+      end
+    end
+
+    class Concatenation
+      # @param Repetition[] repetitions
+      def initialize repetitions
+        @repetitions = repetitions
+      end
+
+      attr_reader :repetitions
+      alias to_a repetitions
+
+      def each &block
+        @repetitions.each(&block)
+      end
+
+      include Enumerable
+
+      def + other
+        other = other.to_a if other.respond_to? :to_a
+        Concatenation.new(@repetitions + other)
+      end
+
+      def to_s
+        repetitions.map{|c| c.to_s }.join(' ')
+      end
+    end
+
+    class Repetition
+      # @param Integer               min (0+)
+      # @param Integer|Symbol        max (1+ or :inf)
+      # @param Primitive|Alternation inner
+      def initialize min, max, inner
+        @min = min
+        @max = max
+        @inner = inner
+      end
+      attr_reader :min, :max, :inner
+
+      def to_s
+        a = b = z = ''
+        if ! @inner.is_a?(Primitive)
+          b = '( '
+          z = ' )'
+        end
+        if @min == 0 && @max == 1
+          b = '[ '
+          z = ' ]'
+        elsif @min == @max
+          a = @min.to_s if @min != 1
+        else
+          a = (@min == 0 ? '' : @min.to_s) + '*' + (@max == :inf ? '' : @max.to_s)
+        end
+        a + b + inner.to_s + z
+      end
+    end
+
+    class Primitive
+      # @param Token token
+      def initialize token
+        @token = token
+      end
+      attr_reader :token
+
+      def to_s
+        @token.to_s
+      end
+    end
+
     ##
     # Parse a string into an AST.
     #
@@ -19,7 +134,7 @@ module ABNF
     # Generate an AST from a TokenSequence.
     #
     def initialize seq
-      @rules = []
+      rules = {}
       seq = seq.to_a
 
       ### sanitise sequence
@@ -33,9 +148,24 @@ module ABNF
 
       _strip seq
       until seq.empty?
-        @rules << _consume_rule(seq)
+        name, op, definition = _consume_rule(seq)
+        if rules[name.value]
+          if op.type == :EQ
+            #warn "overriding rule #{name.value}"
+            rules[name.value] = definition
+          else
+            rules[name.value] += definition
+          end
+        else
+          if op.type == :EQ_ALT
+            #warn "alternation for undefined rule #{name.value}"
+          end
+          rules[name.value] = definition
+        end
         _strip seq
       end
+
+      @rules = rules.each_pair.map{|name, definition| Rule.new name, definition }
     end
 
     def each &block
@@ -47,7 +177,7 @@ module ABNF
       seq.shift while (tok = seq.first) && tok.type == :endline
     end
 
-    # consumes (and returns) a rule from the start of the sequence
+    # consumes (and returns) a partial(?) rule from the start of the sequence
     def _consume_rule seq
       # rule =  rulename defined-as elements c-nl
 
@@ -66,7 +196,7 @@ module ABNF
 
       definition = _alternation(seq)
       raise "unexpected #{seq.first.type.inspect} after rule" unless seq.empty? || seq.first.type == :endline
-      [:rule, rulename, defined_as, definition]
+      [rulename, defined_as, definition]
     end
 
     def _alternation seq, term=nil
@@ -76,7 +206,7 @@ module ABNF
         seq.shift
         cats << _concatenation(seq, term)
       end
-      [:alternation, cats]
+      Alternation.new cats
     end
 
     def _concatenation seq, term=nil
@@ -85,7 +215,7 @@ module ABNF
       until seq.empty? || seq.first.type == :ALT || seq.first.type == :endline || (term && seq.first.type == term)
         reps << _repetition(seq)
       end
-      [:concatenation, reps]
+      Concatenation.new reps
     end
 
     def _repetition seq
@@ -103,7 +233,7 @@ module ABNF
           inner = _alternation(seq, :RPAREN)
           raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
         when :range, :terminal, :istring, :sstring, :prose, :name
-          inner = [:primitive, seq.shift]
+          inner = Primitive.new seq.shift
         else
           raise "unexpected #{seq.first.type.inspect} after #{tok.type.inspect}"
         end
@@ -116,11 +246,11 @@ module ABNF
         inner = _alternation(seq, :RPAREN)
         raise "unterminated group" if seq.empty? || seq.shift.type != :RPAREN
       when :range, :terminal, :istring, :sstring, :prose, :name
-        inner = [:primitive, tok]
+        inner = Primitive.new tok
       else
         raise "??#{tok.inspect}"
       end
-      [:repetition, inner, min, max]
+      Repetition.new min, max, inner
     end
   end
 end

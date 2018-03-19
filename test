@@ -1,0 +1,1 @@
+echo -n 'text-plain;charset="utf-8"' | ruby cli-parse.rb --abnf=core.abnf --abnf=rfc7230.abnf --abnf=header-structure.abnf --rule=param-list

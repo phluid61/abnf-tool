@@ -156,6 +156,10 @@ module ABNF
         elsif tmp.sub! %r(\A #{DIGIT}* \* #{DIGIT}* )x, ''
           @tokens << Token.new(:repetition, $&.freeze, _parse_repetition($&))
 
+        # RFC 7230, Section 7
+        elsif tmp.sub! %r(\A #{DIGIT}* \# #{DIGIT}* )x, ''
+          @tokens << Token.new(:list, $&.freeze, _parse_repetition($&, '#'))
+
         elsif tmp.sub! %r(\A #{DIGIT}+ )x, ''
           @tokens << Token.new(:repetition, $&.freeze, _parse_repetition($&))
 
@@ -209,8 +213,8 @@ module ABNF
       tok.split('.').map {|chunk| chunk.to_i base }.freeze
     end
 
-    def _parse_repetition tok
-      min, max = tok.split('*', -1)
+    def _parse_repetition tok, sym='*'
+      min, max = tok.split(sym, -1)
       max ||= min
       min = min.empty? ? 0    : min.to_i
       max = max.empty? ? :inf : max.to_i

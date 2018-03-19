@@ -156,6 +156,46 @@ module ABNF
       end
     end
 
+    class List < Repetition
+      OWS_COMMA_OWS = %r(\A [\x20\x09]* , [\x20\x09]* )x
+
+      def to_s
+        return super if @min <= 1 && @max <= 1
+        a = b = z = ''
+        if ! @inner.is_a?(Primitive)
+          b = '( '
+          z = ' )'
+        end
+        a = (@min == 0 ? '' : @min.to_s) + '#' + (@max == :inf ? '' : @max.to_s)
+        a + b + inner.to_s + z
+      end
+
+      def match? str
+        # According to spec:
+        #
+        #   1#element => element *( OWS "," OWS element )
+        #   #element => [ 1#element ]
+        #   <n>#<m>element => element <n-1>*<m-1>( OWS "," OWS element )
+        #
+        str = str.to_s.dup
+        n = 0
+        until str.empty?
+          break if @max != :inf && n >= @max
+          if n > 0
+            # OWS "," OWS
+            x = str.sub! OWS_COMMA_OWS, ''
+            break unless x
+          end
+          x = inner.match? str
+          break unless x
+          str = x
+          n += 1
+        end
+        return nil if n < @min
+        str
+      end
+    end
+
     class Primitive
       # @param Token token
       def initialize ast, token
@@ -345,11 +385,13 @@ module ABNF
     end
 
     def _repetition seq
+      klass = Repetition
       rep_tok = nil
       min = max = 1
       raise "truncated repetition" if seq.empty?
       case (tok = seq.shift).type
-      when :repetition
+      when :repetition, :list
+        klass = List if tok.type == :list
         rep_tok = tok
         min, max = tok.value
         case (tok2 = seq.first).type
@@ -382,7 +424,7 @@ module ABNF
       else
         raise "??#{tok.inspect}"
       end
-      Repetition.new min, max, inner
+      klass.new min, max, inner
     end
   end
 end
